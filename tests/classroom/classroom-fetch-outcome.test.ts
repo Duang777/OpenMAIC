@@ -33,8 +33,8 @@ describe('fetchClassroomFromApi outcome classification (#1450)', () => {
     } satisfies ClassroomFetchResult);
   });
 
-  it('returns absent on 404 (and 410 tombstone)', async () => {
-    for (const status of [404, 410] as const) {
+  it('returns absent for 4xx responses that positively reject the classroom id', async () => {
+    for (const status of [400, 404, 410, 422] as const) {
       vi.stubGlobal(
         'fetch',
         vi.fn().mockResolvedValue(
@@ -50,21 +50,23 @@ describe('fetchClassroomFromApi outcome classification (#1450)', () => {
     }
   });
 
-  it('returns unavailable on 5xx instead of collapsing to absent', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ error: 'temporarily unavailable' }), {
-          status: 503,
-          headers: { 'content-type': 'application/json' },
-        }),
-      ),
-    );
+  it('keeps other HTTP failures on the error path instead of claiming absence', async () => {
+    for (const status of [401, 403, 408, 409, 425, 429, 500, 503] as const) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ error: 'temporarily unavailable' }), {
+            status,
+            headers: { 'content-type': 'application/json' },
+          }),
+        ),
+      );
 
-    await expect(fetchClassroomFromApi('stage-live')).resolves.toEqual({
-      outcome: 'unavailable',
-      status: 503,
-    });
+      await expect(fetchClassroomFromApi('stage-live')).resolves.toEqual({
+        outcome: 'unavailable',
+        status,
+      });
+    }
   });
 
   it('returns unavailable on network failure', async () => {

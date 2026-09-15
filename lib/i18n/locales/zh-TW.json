@@ -997,7 +997,7 @@
     "notFound": "找不到這門課程",
     "notFoundDesc": "課程不存在，或已被刪除。",
     "loadUnavailable": "暫時無法載入這門課程",
-    "loadUnavailableDesc": "伺服器沒有正常回應，請重試。",
+    "loadUnavailableDesc": "無法取得課程，請檢查存取權限或重試。",
     "backToHome": "返回首頁"
   },
   "upload": {

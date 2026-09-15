@@ -1012,7 +1012,7 @@
     "notFound": "Không tìm thấy khóa học",
     "notFoundDesc": "Khóa học này không tồn tại hoặc đã bị xóa.",
     "loadUnavailable": "Không tải được khóa học này",
-    "loadUnavailableDesc": "Máy chủ không phản hồi. Vui lòng thử lại.",
+    "loadUnavailableDesc": "Không thể truy xuất khóa học. Hãy kiểm tra quyền truy cập hoặc thử lại.",
     "backToHome": "Về trang chủ"
   },
   "upload": {

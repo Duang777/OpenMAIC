@@ -233,12 +233,10 @@ describe('runClassroomLoad', () => {
         classroomId: 'stage-warm-ghost',
         loadFromStorage: (id, token) => useStageStore.getState().loadFromStorage(id, token),
         getCurrentStage: () => useStageStore.getState().stage,
-        fetchClassroom: vi
-          .fn()
-          .mockResolvedValue({
-            outcome: 'found',
-            classroom: { stage: serverStage, scenes: [serverScene] },
-          }),
+        fetchClassroom: vi.fn().mockResolvedValue({
+          outcome: 'found',
+          classroom: { stage: serverStage, scenes: [serverScene] },
+        }),
         applyFallbackScenes: vi.fn().mockImplementation(async ({ stage, scenes }) => {
           applyClassroomStageAndScenes(stage, scenes, { persist: false });
           return true;
@@ -294,12 +292,10 @@ describe('runClassroomLoad', () => {
         classroomId: 'stage-zero-ghost',
         loadFromStorage: (id, token) => useStageStore.getState().loadFromStorage(id, token),
         getCurrentStage: () => useStageStore.getState().stage,
-        fetchClassroom: vi
-          .fn()
-          .mockResolvedValue({
-            outcome: 'found',
-            classroom: { stage: serverStage, scenes: [serverScene] },
-          }),
+        fetchClassroom: vi.fn().mockResolvedValue({
+          outcome: 'found',
+          classroom: { stage: serverStage, scenes: [serverScene] },
+        }),
         applyFallbackScenes: vi.fn().mockImplementation(async ({ stage, scenes }) => {
           applyClassroomStageAndScenes(stage, scenes, { persist: false });
           return true;
@@ -423,12 +419,10 @@ describe('runClassroomLoad', () => {
         loadToken: token,
         loadFromStorage: (id, t) => useStageStore.getState().loadFromStorage(id, t),
         getCurrentStage: () => useStageStore.getState().stage,
-        fetchClassroom: vi
-          .fn()
-          .mockResolvedValue({
-            outcome: 'found',
-            classroom: { stage: serverStage, scenes: [serverScene] },
-          }),
+        fetchClassroom: vi.fn().mockResolvedValue({
+          outcome: 'found',
+          classroom: { stage: serverStage, scenes: [serverScene] },
+        }),
         applyFallbackScenes: vi.fn().mockImplementation(async ({ stage, scenes }) => {
           applyClassroomStageAndScenes(stage, scenes, { persist: false });
           return true;

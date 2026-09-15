@@ -35,9 +35,10 @@ export interface ClassroomPayload {
 }
 
 /**
- * What `/api/classroom` had to say — three outcomes, matching the stage-meta
- * sidecar. Callers must not collapse `'unavailable'` into absence: a 5xx or
- * transport failure is not proof the course does not exist (#1450).
+ * What `/api/classroom` had to say. This uses the same three-way vocabulary as
+ * stage-meta, with endpoint-specific HTTP classification. Callers must not
+ * collapse `'unavailable'` into absence: an HTTP rejection or transport
+ * failure is not proof the course does not exist (#1450).
  */
 export type ClassroomFetchResult =
   | { outcome: 'found'; classroom: ClassroomPayload }
@@ -49,7 +50,8 @@ export type ClassroomFetchResult =
  *
  * `'ready'` means this course is in the store (local and/or server).
  * `'absent'` is a positive miss (404/410 or an empty success body).
- * `'unavailable'` is the ABSENCE of an answer — retryable, never "not found".
+ * `'unavailable'` means no usable classroom was returned. It stays on the
+ * retryable error path and never becomes "not found".
  */
 export type ClassroomLoadResult =
   | { outcome: 'ready' }
@@ -298,9 +300,12 @@ export async function fetchClassroomFromApi(
   try {
     const res = await fetchImpl(`/api/classroom?id=${encodeURIComponent(classroomId)}`);
     if (!res.ok) {
-      // 404 / 410 are positive answers about absence (never existed / gone).
-      // Every other non-OK status — notably 5xx — is an outage, not a miss.
-      if (res.status === 404 || res.status === 410) return { outcome: 'absent' };
+      // These responses positively establish that this immutable id cannot
+      // resolve to a classroom. Authentication, authorization, conflict, and
+      // other 4xx responses do not prove absence and stay on the error path.
+      if ([400, 404, 410, 422].includes(res.status)) {
+        return { outcome: 'absent' };
+      }
       return { outcome: 'unavailable', status: res.status };
     }
 

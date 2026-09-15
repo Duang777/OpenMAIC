@@ -1012,7 +1012,7 @@
     "notFound": "Course not found",
     "notFoundDesc": "This course does not exist, or it has been deleted.",
     "loadUnavailable": "Couldn't load this course",
-    "loadUnavailableDesc": "The server did not answer. Please try again.",
+    "loadUnavailableDesc": "The course could not be retrieved. Check your access or try again.",
     "backToHome": "Back to home"
   },
   "upload": {
