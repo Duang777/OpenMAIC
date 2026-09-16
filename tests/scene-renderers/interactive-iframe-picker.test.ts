@@ -11,6 +11,7 @@ import {
 import { useCanvasStore } from '@/lib/store/canvas';
 import { useElementRefsStore } from '@/lib/store/element-refs';
 import { useInteractiveIframePool } from '@/lib/store/interactive-iframe-pool';
+import { useWidgetIframeStore } from '@/lib/store/widget-iframe';
 import {
   ELEMENT_REF_SELECTOR_MAX,
   ELEMENT_SNAPSHOT_MAX,
@@ -39,6 +40,12 @@ const picked = {
 afterEach(() => {
   useCanvasStore.getState().resetCanvasState();
   useInteractiveIframePool.getState().reset();
+  useWidgetIframeStore.setState({
+    sendMessageByScene: {},
+    readyByScene: {},
+    pendingMessagesByScene: {},
+    activeSceneId: null,
+  });
   useElementRefsStore.setState({
     ownerSessionId: null,
     refs: [],
@@ -48,6 +55,51 @@ afterEach(() => {
 });
 
 describe('InteractiveIframeHost picker messages', () => {
+  it('flushes queued widget actions on the iframe load event', async () => {
+    useInteractiveIframePool.setState({
+      entries: {
+        'scene-web': {
+          srcDoc: '<div>Widget</div>',
+          rect: { left: 0, top: 0, width: 960, height: 540 },
+          clip: { left: 0, top: 0, width: 960, height: 540 },
+          owner: 'test-owner',
+          tick: 1,
+        },
+      },
+      activeSceneId: 'scene-web',
+      tick: 1,
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(createElement(InteractiveIframeHost));
+      await Promise.resolve();
+    });
+
+    const iframe = document.querySelector<HTMLIFrameElement>(
+      'iframe[title="Interactive Scene scene-web"]',
+    );
+    expect(iframe?.contentWindow).toBeTruthy();
+    const postMessage = vi.spyOn(iframe!.contentWindow!, 'postMessage');
+    useWidgetIframeStore.setState((state) => ({
+      readyByScene: { ...state.readyByScene, 'scene-web': false },
+    }));
+    useWidgetIframeStore.getState().getSendMessage('scene-web')?.('SET_WIDGET_STATE', {
+      value: 42,
+    });
+    expect(postMessage).not.toHaveBeenCalled();
+
+    await act(async () => {
+      iframe!.dispatchEvent(new Event('load'));
+    });
+    expect(postMessage).toHaveBeenCalledWith({ type: 'SET_WIDGET_STATE', value: 42 }, '*');
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
   it('shows the shared courseware instruction only while playback picking is armed', async () => {
     useInteractiveIframePool.setState({
       entries: {
