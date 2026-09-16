@@ -3,14 +3,22 @@ import { createDefaultSlide, createDefaultTextElement } from '@/lib/edit/slide-e
 import type { PPTTextElement } from '@openmaic/dsl';
 import type { SlideContent } from '@/lib/types/stage';
 
-// Mock the canonical stage store so we can assert write-through: every
-// history move in the session (applyOp / user commit / non-user commit /
-// undo / redo) must call updateScene with the new content. Seed must NOT
-// touch the stage store (it only adopts the existing content as the
-// in-memory baseline).
-const updateScene = vi.fn();
+// Mock the canonical stage store so we can assert write-through and model
+// an agent updating the same scene while the local edit session stays open.
+const stageMock = vi.hoisted(() => ({
+  liveContent: null as SlideContent | null,
+  updateScene: vi.fn(),
+}));
+const updateScene = stageMock.updateScene;
 vi.mock('@/lib/store/stage', () => ({
-  useStageStore: { getState: () => ({ updateScene }) },
+  useStageStore: {
+    getState: () => ({
+      scenes: stageMock.liveContent
+        ? [{ id: 'scene-1', type: 'slide', content: stageMock.liveContent }]
+        : [],
+      updateScene,
+    }),
+  },
 }));
 
 // Imported AFTER the mock setup (vi.mock is hoisted by Vitest).
@@ -29,7 +37,11 @@ function makeContent(): SlideContent {
 describe('useSlideEditSession (auto-save to stage store)', () => {
   beforeEach(() => {
     useSlideEditSession.getState().end();
-    updateScene.mockClear();
+    stageMock.liveContent = makeContent();
+    updateScene.mockReset();
+    updateScene.mockImplementation((_sceneId: string, updates: { content?: SlideContent }) => {
+      if (updates.content) stageMock.liveContent = updates.content;
+    });
   });
 
   it('seed adopts a baseline without touching the stage store', () => {
@@ -44,7 +56,7 @@ describe('useSlideEditSession (auto-save to stage store)', () => {
   });
 
   it('applyOp advances history by one step AND writes through to the stage store', () => {
-    useSlideEditSession.getState().seed('scene-1', makeContent());
+    useSlideEditSession.getState().seed('scene-1', stageMock.liveContent!);
     useSlideEditSession.getState().applyOp({
       type: 'element.update',
       elementId: 'text-1',
@@ -59,6 +71,61 @@ describe('useSlideEditSession (auto-save to stage store)', () => {
       'scene-1',
       expect.objectContaining({ content: history!.present }),
     );
+  });
+
+  it('rebases a toolbar operation onto a concurrent canonical scene update', () => {
+    useSlideEditSession.getState().seed('scene-1', stageMock.liveContent!);
+    const agentContent = structuredClone(stageMock.liveContent!);
+    agentContent.canvas.elements.push(createDefaultTextElement('agent-text'));
+    stageMock.liveContent = agentContent;
+
+    useSlideEditSession.getState().applyOp({
+      type: 'element.update',
+      elementId: 'text-1',
+      patch: { left: 500 },
+    });
+
+    const present = useSlideEditSession.getState().history!.present;
+    expect(present.canvas.elements.map((element) => element.id)).toEqual(['text-1', 'agent-text']);
+    expect(present.canvas.elements[0].left).toBe(500);
+    expect(stageMock.liveContent).toBe(present);
+  });
+
+  it('rebases a renderer snapshot onto a concurrent canonical scene update', () => {
+    useSlideEditSession.getState().seed('scene-1', stageMock.liveContent!);
+    const rendererCommit = structuredClone(useSlideEditSession.getState().history!.present);
+    rendererCommit.canvas.elements[0].top = 222;
+
+    const agentContent = structuredClone(stageMock.liveContent!);
+    agentContent.canvas.elements.push(createDefaultTextElement('agent-text'));
+    stageMock.liveContent = agentContent;
+
+    useSlideEditSession.getState().commitContent(rendererCommit, true);
+
+    const present = useSlideEditSession.getState().history!.present;
+    expect(present.canvas.elements.map((element) => element.id)).toEqual(['text-1', 'agent-text']);
+    expect(present.canvas.elements[0].top).toBe(222);
+    expect(stageMock.liveContent).toBe(present);
+  });
+
+  it('does not let undo restore a snapshot older than a concurrent canonical update', () => {
+    useSlideEditSession.getState().seed('scene-1', stageMock.liveContent!);
+    useSlideEditSession.getState().applyOp({
+      type: 'element.update',
+      elementId: 'text-1',
+      patch: { left: 500 },
+    });
+
+    const agentContent = structuredClone(stageMock.liveContent!);
+    agentContent.canvas.elements.push(createDefaultTextElement('agent-text'));
+    stageMock.liveContent = agentContent;
+    updateScene.mockClear();
+
+    useSlideEditSession.getState().undo();
+
+    const present = useSlideEditSession.getState().history!.present;
+    expect(present).toEqual(agentContent);
+    expect(updateScene).not.toHaveBeenCalled();
   });
 
   it('rejects a transaction captured by a previous scene', () => {

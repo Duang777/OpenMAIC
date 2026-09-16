@@ -116,6 +116,24 @@ export function deriveSlideEditOperations(
 }
 
 /**
+ * Replay the local delta between two renderer snapshots onto a newer
+ * canonical document. The legacy operation reducer deliberately treats
+ * edits targeting an element that has since been removed as no-ops, so a
+ * concurrent agent update cannot turn a late pointer commit into an error
+ * or restore stale content.
+ */
+export function rebaseSlideEditSnapshot(
+  canonical: SlideContent,
+  previous: SlideContent,
+  next: SlideContent,
+): SlideContent {
+  return deriveSlideEditOperations(previous, next).reduce(
+    (content, operation) => applySlideEditOperation(content, operation),
+    canonical,
+  );
+}
+
+/**
  * Apply a renderer-committed `next` snapshot onto `history` as exactly ONE
  * undo transaction.
  *

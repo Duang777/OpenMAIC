@@ -18,6 +18,7 @@
  */
 
 import { create } from 'zustand';
+import { isEqual } from 'lodash';
 import {
   applyEditorTransaction,
   createEditorHistory,
@@ -27,7 +28,7 @@ import {
   type EditorOperation,
   type EditorTransaction,
 } from '@openmaic/editor/core';
-import { commitSlideEdit } from '@/lib/edit/scene-edit-bridge';
+import { commitSlideEdit, rebaseSlideEditSnapshot } from '@/lib/edit/scene-edit-bridge';
 import { migrateSlideContent } from '@/lib/edit/slide-schema';
 import type { SlideEditHistory } from '@/lib/edit/slide-ops';
 import { useStageStore } from '@/lib/store/stage';
@@ -89,6 +90,23 @@ export const useSlideEditSession = create<SlideEditSessionState>((set, get) => {
     set({ history });
   };
 
+  /**
+   * Adopt an externally updated scene as a new history baseline before a
+   * local action runs. Undo snapshots captured before that update cannot
+   * remain valid: replaying one would overwrite the canonical change.
+   */
+  const freshHistory = () => {
+    const { sceneId, history } = get();
+    if (!sceneId || !history) return history;
+    const scene = useStageStore.getState().scenes.find((candidate) => candidate.id === sceneId);
+    if (!scene || scene.type !== 'slide') return history;
+    const canonical = migrateSlideContent(scene.content);
+    if (isEqual(canonical, history.present)) return history;
+    const nextHistory = createEditorHistory(canonical);
+    set({ history: nextHistory });
+    return nextHistory;
+  };
+
   return {
     sceneId: null,
     history: null,
@@ -108,7 +126,7 @@ export const useSlideEditSession = create<SlideEditSessionState>((set, get) => {
     },
 
     applyOp: (op) => {
-      const { history } = get();
+      const history = freshHistory();
       if (!history) return;
       // Legacy toolbar actions may arrive after their selected element was
       // deleted. Keep that one-operation UI path a silent no-op as before;
@@ -130,20 +148,28 @@ export const useSlideEditSession = create<SlideEditSessionState>((set, get) => {
     },
 
     applyTransaction: (transaction) => {
-      const { history } = get();
+      const history = freshHistory();
       if (!history) return;
       replace(applyEditorTransaction(history, transaction));
     },
 
     applyTransactionForScene: (sceneId, transaction) => {
-      const { history, sceneId: currentSceneId } = get();
+      const { sceneId: currentSceneId } = get();
+      if (currentSceneId !== sceneId) return;
+      const history = freshHistory();
       if (!history || currentSceneId !== sceneId) return;
       replace(applyEditorTransaction(history, transaction));
     },
 
     commitContent: (next, isUserEdit) => {
-      const { history } = get();
+      const previousHistory = get().history;
+      if (!previousHistory) return;
+      const history = freshHistory();
       if (!history) return;
+      const rebasedNext =
+        history === previousHistory
+          ? next
+          : rebaseSlideEditSnapshot(history.present, previousHistory.present, next);
       if (!isUserEdit) {
         // ResizeObserver / auto-height normalization: don't push an undo
         // step (the reflow can chase a user resize and wiping `past` would
@@ -153,28 +179,32 @@ export const useSlideEditSession = create<SlideEditSessionState>((set, get) => {
         // the redo branch pointed at, so replaying those stale entries
         // would discard this normalization. Leaving them would let a later
         // redo silently revert to pre-undo content (canvas/store divergence).
-        writeThrough(next);
-        set({ history: { ...history, present: next, future: [] } });
+        if (rebasedNext === history.present) return;
+        writeThrough(rebasedNext);
+        set({ history: { ...history, present: rebasedNext, future: [] } });
         return;
       }
       // The legacy Canvas still emits complete snapshots while the renderer
       // editor is feature-flagged. Keep this compatibility bridge isolated
       // to that fallback until its React surface moves into @openmaic/editor.
       replace(
-        commitSlideEdit(history as unknown as SlideEditHistory, next) as unknown as EditorHistory,
+        commitSlideEdit(
+          history as unknown as SlideEditHistory,
+          rebasedNext,
+        ) as unknown as EditorHistory,
       );
     },
 
     setGestureActive: (gestureActive) => set({ gestureActive }),
 
     undo: () => {
-      const { history } = get();
+      const history = freshHistory();
       if (!history) return;
       replace(undoEditorTransaction(history));
     },
 
     redo: () => {
-      const { history } = get();
+      const history = freshHistory();
       if (!history) return;
       replace(redoEditorTransaction(history));
     },
