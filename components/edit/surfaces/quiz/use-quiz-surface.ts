@@ -34,16 +34,11 @@ function currentQuizContent(sceneId: string): QuizContent | null {
   return scene && scene.type === 'quiz' ? (scene.content as QuizContent) : null;
 }
 
-/** The working content: in-memory session present, else the canonical scene, else empty. */
-function resolvePresent(): QuizContent {
-  const { history, sceneId } = useQuizEditSession.getState();
-  return history?.present ?? (sceneId ? currentQuizContent(sceneId) : null) ?? EMPTY_QUIZ;
-}
-
 // ---------------------------------------------------------------------------
-// Bound mutations. Each reads `present` via getState (a stable module closure,
-// never a per-render capture) so the EditShell's `surfaceStateEqual` — which
-// does NOT compare callbacks — stays correct without special-casing.
+// Bound mutations. Each passes a pure mutation into the edit session, which
+// applies it to the latest canonical content before writing through. The
+// callbacks stay module-stable, so EditShell's `surfaceStateEqual` does not
+// need to compare them.
 //
 // `commit`  = discrete edit → its own undo step.
 // `commitText` = coalesced text edit → consecutive same-key edits fold into
@@ -54,39 +49,39 @@ function resolvePresent(): QuizContent {
 type QuestionTextPatch = Parameters<typeof updateQuestion>[2];
 
 export function addQuizQuestion(type: QuizQuestionType): void {
-  useQuizEditSession.getState().commit(addQuestion(resolvePresent(), type));
+  useQuizEditSession.getState().commit((content) => addQuestion(content, type));
 }
 export function deleteQuizQuestion(id: string): void {
-  useQuizEditSession.getState().commit(deleteQuestion(resolvePresent(), id));
+  useQuizEditSession.getState().commit((content) => deleteQuestion(content, id));
 }
 export function reorderQuizQuestions(orderedIds: readonly string[]): void {
-  useQuizEditSession.getState().commit(reorderQuestions(resolvePresent(), orderedIds));
+  useQuizEditSession.getState().commit((content) => reorderQuestions(content, orderedIds));
 }
 export function setQuizQuestionType(id: string, type: QuizQuestionType): void {
-  useQuizEditSession.getState().commit(setQuestionType(resolvePresent(), id, type));
+  useQuizEditSession.getState().commit((content) => setQuestionType(content, id, type));
 }
 /** Coalesced text/number patch (question / analysis / commentPrompt / points). */
 export function typeQuizQuestion(id: string, patch: QuestionTextPatch, coalesceKey: string): void {
   useQuizEditSession
     .getState()
-    .commitText(updateQuestion(resolvePresent(), id, patch), coalesceKey);
+    .commitText((content) => updateQuestion(content, id, patch), coalesceKey);
 }
 export function addQuizOption(id: string): void {
-  useQuizEditSession.getState().commit(addOption(resolvePresent(), id));
+  useQuizEditSession.getState().commit((content) => addOption(content, id));
 }
 export function deleteQuizOption(id: string, index: number): void {
-  useQuizEditSession.getState().commit(deleteOption(resolvePresent(), id, index));
+  useQuizEditSession.getState().commit((content) => deleteOption(content, id, index));
 }
 export function typeQuizOptionLabel(id: string, index: number, label: string): void {
   useQuizEditSession
     .getState()
-    .commitText(updateOptionLabel(resolvePresent(), id, index, label), `${id}:opt:${index}`);
+    .commitText((content) => updateOptionLabel(content, id, index, label), `${id}:opt:${index}`);
 }
 export function reorderQuizOptions(id: string, from: number, to: number): void {
-  useQuizEditSession.getState().commit(reorderOptions(resolvePresent(), id, from, to));
+  useQuizEditSession.getState().commit((content) => reorderOptions(content, id, from, to));
 }
 export function toggleQuizCorrect(id: string, index: number): void {
-  useQuizEditSession.getState().commit(toggleCorrect(resolvePresent(), id, index));
+  useQuizEditSession.getState().commit((content) => toggleCorrect(content, id, index));
 }
 
 /** Max validation hints shown at once so the HintRail stays readable. */

@@ -20,6 +20,7 @@
  */
 
 import { create } from 'zustand';
+import { isEqual } from 'lodash';
 import { useStageStore } from '@/lib/store/stage';
 import type { QuizContent } from '@/lib/types/stage';
 import {
@@ -30,6 +31,8 @@ import {
   type QuizEditHistory,
 } from './quiz-edit-ops';
 
+type QuizEditMutation = (content: QuizContent) => QuizContent;
+
 interface QuizEditSessionState {
   sceneId: string | null;
   history: QuizEditHistory | null;
@@ -39,9 +42,9 @@ interface QuizEditSessionState {
   /** Establish a fresh in-memory baseline for a scene. */
   seed: (sceneId: string, content: QuizContent) => void;
   /** Discrete structural edit — always its own undo step. */
-  commit: (next: QuizContent) => void;
+  commit: (mutate: QuizEditMutation) => void;
   /** Coalescing text edit — same key folds into one undo step. */
-  commitText: (next: QuizContent, coalesceKey: string) => void;
+  commitText: (mutate: QuizEditMutation, coalesceKey: string) => void;
   undo: () => void;
   redo: () => void;
   /** Tear the session down on exit from edit mode. */
@@ -63,6 +66,23 @@ export const useQuizEditSession = create<QuizEditSessionState>((set, get) => {
     set({ history, coalesceKey: null });
   };
 
+  /**
+   * Adopt an externally updated scene as a new history baseline before a
+   * local action runs. Old undo and redo snapshots cannot remain valid
+   * because replaying them would replace the canonical update.
+   */
+  const freshHistory = (): QuizEditHistory | null => {
+    const { sceneId, history } = get();
+    if (!sceneId || !history) return null;
+    const scene = useStageStore.getState().scenes.find((candidate) => candidate.id === sceneId);
+    if (!scene || scene.type !== 'quiz') return null;
+    const canonical = scene.content as QuizContent;
+    if (isEqual(canonical, history.present)) return history;
+    const nextHistory = createQuizEditHistory(canonical);
+    set({ history: nextHistory, coalesceKey: null });
+    return nextHistory;
+  };
+
   return {
     sceneId: null,
     history: null,
@@ -74,15 +94,17 @@ export const useQuizEditSession = create<QuizEditSessionState>((set, get) => {
       set({ sceneId, history: createQuizEditHistory(content), coalesceKey: null });
     },
 
-    commit: (next) => {
-      const { history } = get();
+    commit: (mutate) => {
+      const history = freshHistory();
       if (!history) return;
-      replace(commitQuizContent(history, next));
+      replace(commitQuizContent(history, mutate(history.present)));
     },
 
-    commitText: (next, coalesceKey) => {
-      const { history, coalesceKey: activeKey } = get();
+    commitText: (mutate, coalesceKey) => {
+      const history = freshHistory();
       if (!history) return;
+      const { coalesceKey: activeKey } = get();
+      const next = mutate(history.present);
       if (next === history.present) return;
       writeThrough(next);
       if (activeKey === coalesceKey) {
@@ -95,13 +117,13 @@ export const useQuizEditSession = create<QuizEditSessionState>((set, get) => {
     },
 
     undo: () => {
-      const { history } = get();
+      const history = freshHistory();
       if (!history) return;
       replace(undoQuiz(history));
     },
 
     redo: () => {
-      const { history } = get();
+      const history = freshHistory();
       if (!history) return;
       replace(redoQuiz(history));
     },
