@@ -17,14 +17,20 @@ interface PendingWidgetMessage {
 interface WidgetIframeState {
   /** Callbacks keyed by sceneId for targeted postMessage communication */
   sendMessageByScene: Record<string, WidgetSendMessage>;
+  /** Stable identity for the iframe document currently registered per scene */
+  documentTokenByScene: Record<string, unknown>;
   /** Whether the current iframe document has emitted its load event */
   readyByScene: Record<string, boolean>;
   /** Messages waiting for the target iframe document to become ready */
   pendingMessagesByScene: Record<string, PendingWidgetMessage[]>;
   /** Currently active scene ID (used for fallback/legacy support) */
   activeSceneId: string | null;
-  /** Register an iframe callback for a specific scene */
-  registerIframe: (sceneId: string, callback: WidgetSendMessage | null) => void;
+  /** Register an iframe callback for a specific document and return its cleanup lease */
+  registerIframe: (
+    sceneId: string,
+    callback: WidgetSendMessage | null,
+    documentToken?: unknown,
+  ) => () => void;
   /** Mark the current iframe document ready and flush its pending messages */
   markIframeReady: (sceneId: string) => void;
   /** Set the active scene ID */
@@ -35,25 +41,60 @@ interface WidgetIframeState {
 
 export const useWidgetIframeStore = create<WidgetIframeState>((set, get) => ({
   sendMessageByScene: {},
+  documentTokenByScene: {},
   readyByScene: {},
   pendingMessagesByScene: {},
   activeSceneId: null,
-  registerIframe: (sceneId, callback) =>
-    set((state) => {
-      if (callback === null) {
+  registerIframe: (sceneId, callback, documentToken) => {
+    const clearRegistration = () =>
+      set((state) => {
         const sendMessageByScene = { ...state.sendMessageByScene };
+        const documentTokenByScene = { ...state.documentTokenByScene };
         const readyByScene = { ...state.readyByScene };
         const pendingMessagesByScene = { ...state.pendingMessagesByScene };
         delete sendMessageByScene[sceneId];
+        delete documentTokenByScene[sceneId];
         delete readyByScene[sceneId];
         delete pendingMessagesByScene[sceneId];
-        return { sendMessageByScene, readyByScene, pendingMessagesByScene };
+        return {
+          sendMessageByScene,
+          documentTokenByScene,
+          readyByScene,
+          pendingMessagesByScene,
+        };
+      });
+
+    if (callback === null) {
+      clearRegistration();
+      return () => undefined;
+    }
+    const resolvedDocumentToken = documentToken ?? callback;
+
+    set((state) => {
+      const previousToken = state.documentTokenByScene[sceneId];
+      const pendingMessagesByScene = { ...state.pendingMessagesByScene };
+      if (previousToken !== undefined && previousToken !== resolvedDocumentToken) {
+        delete pendingMessagesByScene[sceneId];
       }
       return {
         sendMessageByScene: { ...state.sendMessageByScene, [sceneId]: callback },
+        documentTokenByScene: {
+          ...state.documentTokenByScene,
+          [sceneId]: resolvedDocumentToken,
+        },
         readyByScene: { ...state.readyByScene, [sceneId]: false },
+        pendingMessagesByScene,
       };
-    }),
+    });
+
+    return () => {
+      queueMicrotask(() => {
+        if (get().sendMessageByScene[sceneId] === callback) {
+          clearRegistration();
+        }
+      });
+    };
+  },
   markIframeReady: (sceneId) => {
     const state = get();
     const send = state.sendMessageByScene[sceneId];

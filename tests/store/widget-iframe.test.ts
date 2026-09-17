@@ -5,6 +5,7 @@ describe('useWidgetIframeStore', () => {
   beforeEach(() => {
     useWidgetIframeStore.setState({
       sendMessageByScene: {},
+      documentTokenByScene: {},
       readyByScene: {},
       pendingMessagesByScene: {},
       activeSceneId: null,
@@ -58,6 +59,39 @@ describe('useWidgetIframeStore', () => {
 
     useWidgetIframeStore.getState().markIframeReady('scene-1');
     expect(replacementDocument).toHaveBeenCalledWith('DURING_RELOAD', {});
+  });
+
+  it('keeps queued messages when the same document immediately reacquires its registration', async () => {
+    const send = useWidgetIframeStore.getState().getSendMessage('scene-1');
+    send?.('SET_WIDGET_STATE', { value: 1 });
+    const documentToken = {};
+    const firstDocument = vi.fn();
+    const release = useWidgetIframeStore
+      .getState()
+      .registerIframe('scene-1', firstDocument, documentToken);
+
+    release();
+    const remountedDocument = vi.fn();
+    useWidgetIframeStore.getState().registerIframe('scene-1', remountedDocument, documentToken);
+    await Promise.resolve();
+    useWidgetIframeStore.getState().markIframeReady('scene-1');
+
+    expect(firstDocument).not.toHaveBeenCalled();
+    expect(remountedDocument).toHaveBeenCalledWith('SET_WIDGET_STATE', { value: 1 });
+  });
+
+  it('does not replay messages queued for a replaced document', async () => {
+    const firstToken = {};
+    const release = useWidgetIframeStore.getState().registerIframe('scene-1', vi.fn(), firstToken);
+    useWidgetIframeStore.getState().getSendMessage('scene-1')?.('STALE', {});
+
+    release();
+    const replacementDocument = vi.fn();
+    useWidgetIframeStore.getState().registerIframe('scene-1', replacementDocument, {});
+    await Promise.resolve();
+    useWidgetIframeStore.getState().markIframeReady('scene-1');
+
+    expect(replacementDocument).not.toHaveBeenCalled();
   });
 
   it('drops queued messages when a scene iframe is unregistered', () => {
