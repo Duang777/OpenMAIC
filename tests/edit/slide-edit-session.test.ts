@@ -108,6 +108,29 @@ describe('useSlideEditSession (auto-save to stage store)', () => {
     expect(stageMock.liveContent).toBe(present);
   });
 
+  it('does not add an agent element twice when the renderer already includes it', () => {
+    useSlideEditSession.getState().seed('scene-1', stageMock.liveContent!);
+    const rendererCommit = structuredClone(useSlideEditSession.getState().history!.present);
+    rendererCommit.canvas.elements[0].top = 222;
+    const rendererAgentElement = createDefaultTextElement('agent-text');
+    rendererAgentElement.top = 111;
+    rendererCommit.canvas.elements.push(rendererAgentElement);
+
+    const agentContent = structuredClone(stageMock.liveContent!);
+    const canonicalAgentElement = createDefaultTextElement('agent-text');
+    canonicalAgentElement.top = 333;
+    agentContent.canvas.elements.push(canonicalAgentElement);
+    stageMock.liveContent = agentContent;
+
+    expect(() => useSlideEditSession.getState().commitContent(rendererCommit, true)).not.toThrow();
+
+    const present = useSlideEditSession.getState().history!.present;
+    expect(present.canvas.elements.map((element) => element.id)).toEqual(['text-1', 'agent-text']);
+    expect(present.canvas.elements[0].top).toBe(222);
+    expect(present.canvas.elements[1].top).toBe(333);
+    expect(stageMock.liveContent).toBe(present);
+  });
+
   it('does not let undo restore a snapshot older than a concurrent canonical update', () => {
     useSlideEditSession.getState().seed('scene-1', stageMock.liveContent!);
     useSlideEditSession.getState().applyOp({

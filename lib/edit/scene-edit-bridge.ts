@@ -127,10 +127,14 @@ export function rebaseSlideEditSnapshot(
   previous: SlideContent,
   next: SlideContent,
 ): SlideContent {
-  return deriveSlideEditOperations(previous, next).reduce(
-    (content, operation) => applySlideEditOperation(content, operation),
-    canonical,
-  );
+  return deriveSlideEditOperations(previous, next).reduce((content, operation) => {
+    if (operation.type !== 'element.add') {
+      return applySlideEditOperation(content, operation);
+    }
+
+    const existing = content.canvas.elements.find((element) => element.id === operation.element.id);
+    return existing ? content : applySlideEditOperation(content, operation);
+  }, canonical);
 }
 
 /**

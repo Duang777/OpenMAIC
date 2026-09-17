@@ -1,6 +1,15 @@
+// @vitest-environment jsdom
+import { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { QuizContent } from '@/lib/types/stage';
-import { addQuestion, updateQuestion } from '@/components/edit/surfaces/quiz/quiz-edit-ops';
+import {
+  addQuestion,
+  reorderOptions,
+  updateQuestion,
+} from '@/components/edit/surfaces/quiz/quiz-edit-ops';
+
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 // Mock the canonical stage store so we can assert write-through and model
 // an agent updating the same scene while the local edit session stays open.
@@ -10,24 +19,60 @@ const stageMock = vi.hoisted(() => ({
 }));
 const updateScene = stageMock.updateScene;
 vi.mock('@/lib/store/stage', () => ({
-  useStageStore: {
-    getState: () => ({
-      scenes: stageMock.liveContent
-        ? [{ id: 'scene-1', type: 'quiz', content: stageMock.liveContent }]
-        : [],
-      updateScene,
-    }),
-  },
+  useStageStore: Object.assign(
+    (selector: (state: Record<string, unknown>) => unknown) =>
+      selector({
+        currentSceneId: 'scene-1',
+        scenes: stageMock.liveContent
+          ? [{ id: 'scene-1', type: 'quiz', content: stageMock.liveContent }]
+          : [],
+        updateScene,
+      }),
+    {
+      getState: () => ({
+        scenes: stageMock.liveContent
+          ? [{ id: 'scene-1', type: 'quiz', content: stageMock.liveContent }]
+          : [],
+        updateScene,
+      }),
+    },
+  ),
 }));
 
 const { useQuizEditSession } = await import('@/components/edit/surfaces/quiz/quiz-edit-session');
-const { reorderQuizQuestions, typeQuizQuestion } =
-  await import('@/components/edit/surfaces/quiz/use-quiz-surface');
+const {
+  deleteQuizOption,
+  reorderQuizOptions,
+  reorderQuizQuestions,
+  toggleQuizCorrect,
+  typeQuizOptionLabel,
+  typeQuizQuestion,
+  useResolvedQuizContent,
+} = await import('@/components/edit/surfaces/quiz/use-quiz-surface');
 
 function makeContent(): QuizContent {
   return {
     type: 'quiz',
     questions: [{ id: 'q1', type: 'single', question: 'Q?', options: [], answer: [], points: 1 }],
+  };
+}
+
+function makeChoiceContent(): QuizContent {
+  return {
+    type: 'quiz',
+    questions: [
+      {
+        id: 'q1',
+        type: 'single',
+        question: 'Pick a fruit',
+        options: [
+          { value: 'A', label: 'Apple' },
+          { value: 'B', label: 'Banana' },
+        ],
+        answer: ['A'],
+        points: 1,
+      },
+    ],
   };
 }
 
@@ -122,6 +167,68 @@ describe('useQuizEditSession (auto-save to stage store)', () => {
       'q1',
       'agent-question',
     ]);
+  });
+
+  it('renders and adopts externally reordered options as the new session baseline', async () => {
+    stageMock.liveContent = makeChoiceContent();
+    useQuizEditSession.getState().seed('scene-1', stageMock.liveContent);
+    const rendered: QuizContent[] = [];
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    const Probe = () => {
+      rendered.push(useResolvedQuizContent());
+      return null;
+    };
+
+    await act(async () => {
+      root.render(createElement(Probe));
+    });
+    const reordered = reorderOptions(stageMock.liveContent, 'q1', 0, 1);
+    stageMock.liveContent = reordered;
+    await act(async () => {
+      root.render(createElement(Probe));
+    });
+
+    expect(rendered.at(-1)?.questions[0].options?.map((option) => option.label)).toEqual([
+      'Banana',
+      'Apple',
+    ]);
+    expect(useQuizEditSession.getState().history?.present).toBe(reordered);
+
+    act(() => root.unmount());
+  });
+
+  it.each([
+    {
+      name: 'text edit',
+      invoke: (option: { value: string; label: string }) =>
+        typeQuizOptionLabel('q1', 0, 'Edited Apple', option),
+    },
+    {
+      name: 'correct-answer toggle',
+      invoke: (option: { value: string; label: string }) => toggleQuizCorrect('q1', 0, option),
+    },
+    {
+      name: 'delete',
+      invoke: (option: { value: string; label: string }) => deleteQuizOption('q1', 0, option),
+    },
+    {
+      name: 'reorder',
+      invoke: (option: { value: string; label: string }) => reorderQuizOptions('q1', 0, 1, option),
+    },
+  ])('ignores a stale option $name after an external reorder', ({ invoke }) => {
+    stageMock.liveContent = makeChoiceContent();
+    useQuizEditSession.getState().seed('scene-1', stageMock.liveContent);
+    const renderedOption = useQuizEditSession.getState().history!.present.questions[0].options![0];
+    const reordered = reorderOptions(stageMock.liveContent, 'q1', 0, 1);
+    stageMock.liveContent = reordered;
+    updateScene.mockClear();
+
+    invoke(renderedOption);
+
+    expect(stageMock.liveContent).toBe(reordered);
+    expect(useQuizEditSession.getState().history?.present).toBe(reordered);
+    expect(updateScene).not.toHaveBeenCalled();
   });
 
   it('does not let undo restore a snapshot older than a concurrent canonical update', () => {

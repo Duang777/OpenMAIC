@@ -247,7 +247,7 @@ export function QuestionCard({ question: q, index, expanded, onToggle }: Props) 
                         aria-label={t('edit.quiz.markCorrect')}
                         aria-pressed={correct}
                         onPointerDown={stopDrag}
-                        onClick={() => toggleQuizCorrect(q.id, i)}
+                        onClick={() => toggleQuizCorrect(q.id, i, opt)}
                         className={cn(
                           'relative flex h-8 w-8 shrink-0 items-center justify-center border font-mono text-xs font-bold transition-all',
                           q.type === 'single' ? 'rounded-full' : 'rounded-lg',
@@ -261,7 +261,7 @@ export function QuestionCard({ question: q, index, expanded, onToggle }: Props) 
                       <Input
                         value={opt.label}
                         onPointerDown={stopDrag}
-                        onChange={(e) => typeQuizOptionLabel(q.id, i, e.target.value)}
+                        onChange={(e) => typeQuizOptionLabel(q.id, i, e.target.value, opt)}
                         placeholder={t('edit.quiz.optionPlaceholder')}
                         className={cn(
                           'flex-1 border-transparent bg-transparent shadow-none',
@@ -272,21 +272,21 @@ export function QuestionCard({ question: q, index, expanded, onToggle }: Props) 
                         <IconButton
                           label={t('edit.quiz.moveUp')}
                           disabled={i === 0}
-                          onClick={() => reorderQuizOptions(q.id, i, i - 1)}
+                          onClick={() => reorderQuizOptions(q.id, i, i - 1, opt)}
                         >
                           <ChevronUp className="h-4 w-4" />
                         </IconButton>
                         <IconButton
                           label={t('edit.quiz.moveDown')}
                           disabled={i === (q.options?.length ?? 0) - 1}
-                          onClick={() => reorderQuizOptions(q.id, i, i + 1)}
+                          onClick={() => reorderQuizOptions(q.id, i, i + 1, opt)}
                         >
                           <ChevronDown className="h-4 w-4" />
                         </IconButton>
                         <IconButton
                           label={t('edit.quiz.deleteOption')}
                           disabled={(q.options?.length ?? 0) <= 1}
-                          onClick={() => deleteQuizOption(q.id, i)}
+                          onClick={() => deleteQuizOption(q.id, i, opt)}
                           danger
                         >
                           <X className="h-4 w-4" />

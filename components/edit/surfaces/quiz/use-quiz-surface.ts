@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect } from 'react';
+import { isEqual } from 'lodash';
 import type { EditorHint, SurfaceState } from '@/lib/edit/scene-editor-surface';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { useStageStore } from '@/lib/store/stage';
-import type { QuizContent, QuizQuestionType } from '@/lib/types/stage';
+import type { QuizContent, QuizOption, QuizQuestionType } from '@/lib/types/stage';
 import {
   addOption,
   addQuestion,
@@ -48,6 +49,18 @@ function currentQuizContent(sceneId: string): QuizContent | null {
 
 type QuestionTextPatch = Parameters<typeof updateQuestion>[2];
 
+function stillTargetsRenderedOption(
+  content: QuizContent,
+  questionId: string,
+  index: number,
+  renderedOption: QuizOption,
+): boolean {
+  return (
+    content.questions.find((question) => question.id === questionId)?.options?.[index] ===
+    renderedOption
+  );
+}
+
 export function addQuizQuestion(type: QuizQuestionType): void {
   useQuizEditSession.getState().commit((content) => addQuestion(content, type));
 }
@@ -69,19 +82,53 @@ export function typeQuizQuestion(id: string, patch: QuestionTextPatch, coalesceK
 export function addQuizOption(id: string): void {
   useQuizEditSession.getState().commit((content) => addOption(content, id));
 }
-export function deleteQuizOption(id: string, index: number): void {
-  useQuizEditSession.getState().commit((content) => deleteOption(content, id, index));
-}
-export function typeQuizOptionLabel(id: string, index: number, label: string): void {
+export function deleteQuizOption(id: string, index: number, renderedOption: QuizOption): void {
   useQuizEditSession
     .getState()
-    .commitText((content) => updateOptionLabel(content, id, index, label), `${id}:opt:${index}`);
+    .commit((content) =>
+      stillTargetsRenderedOption(content, id, index, renderedOption)
+        ? deleteOption(content, id, index)
+        : content,
+    );
 }
-export function reorderQuizOptions(id: string, from: number, to: number): void {
-  useQuizEditSession.getState().commit((content) => reorderOptions(content, id, from, to));
+export function typeQuizOptionLabel(
+  id: string,
+  index: number,
+  label: string,
+  renderedOption: QuizOption,
+): void {
+  useQuizEditSession
+    .getState()
+    .commitText(
+      (content) =>
+        stillTargetsRenderedOption(content, id, index, renderedOption)
+          ? updateOptionLabel(content, id, index, label)
+          : content,
+      `${id}:opt:${index}`,
+    );
 }
-export function toggleQuizCorrect(id: string, index: number): void {
-  useQuizEditSession.getState().commit((content) => toggleCorrect(content, id, index));
+export function reorderQuizOptions(
+  id: string,
+  from: number,
+  to: number,
+  renderedOption: QuizOption,
+): void {
+  useQuizEditSession
+    .getState()
+    .commit((content) =>
+      stillTargetsRenderedOption(content, id, from, renderedOption)
+        ? reorderOptions(content, id, from, to)
+        : content,
+    );
+}
+export function toggleQuizCorrect(id: string, index: number, renderedOption: QuizOption): void {
+  useQuizEditSession
+    .getState()
+    .commit((content) =>
+      stillTargetsRenderedOption(content, id, index, renderedOption)
+        ? toggleCorrect(content, id, index)
+        : content,
+    );
 }
 
 /** Max validation hints shown at once so the HintRail stays readable. */
@@ -131,6 +178,7 @@ export function buildQuizHints(
  */
 export function useResolvedQuizContent(): QuizContent {
   const history = useQuizEditSession((s) => s.history);
+  const currentSceneId = useStageStore((s) => s.currentSceneId);
   // Fall back to the canonical current quiz scene so the form has its content
   // on the very first render — before the session seeds in an effect. (`seed`
   // adopts this exact object, so the ref is stable across the seed and the
@@ -142,7 +190,22 @@ export function useResolvedQuizContent(): QuizContent {
     const scene = s.scenes.find((x) => x.id === s.currentSceneId) ?? null;
     return scene && scene.type === 'quiz' ? (scene.content as QuizContent) : null;
   });
-  return history?.present ?? sceneContent ?? EMPTY_QUIZ;
+  const hasExternalUpdate =
+    history !== null && sceneContent !== null && !isEqual(history.present, sceneContent);
+
+  useEffect(() => {
+    if (!hasExternalUpdate || !sceneContent || !currentSceneId) return;
+    const session = useQuizEditSession.getState();
+    if (
+      session.sceneId === currentSceneId &&
+      session.history &&
+      !isEqual(session.history.present, sceneContent)
+    ) {
+      session.seed(currentSceneId, sceneContent);
+    }
+  }, [currentSceneId, hasExternalUpdate, sceneContent]);
+
+  return hasExternalUpdate ? sceneContent : (history?.present ?? sceneContent ?? EMPTY_QUIZ);
 }
 
 /**
