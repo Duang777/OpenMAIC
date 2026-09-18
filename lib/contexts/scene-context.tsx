@@ -37,7 +37,8 @@ export interface SceneDataController<T = unknown> {
   sceneId: string;
   sceneType: Scene['type'];
   getSnapshot: () => T;
-  updateSceneData: (updater: (draft: T) => void) => void;
+  /** Apply an update against the exact snapshot exposed by this provider render. */
+  updateSceneData: (baseline: T, updater: (draft: T) => void) => void;
 }
 
 /**
@@ -52,12 +53,12 @@ export interface SceneDataController<T = unknown> {
  *   <SlideRenderer /> // Uses useSceneData<SlideContent>()
  * </SceneProvider>
  */
-export function SceneProvider({
+export function SceneProvider<T = unknown>({
   children,
   controller,
 }: {
-  children: React.ReactNode;
-  controller?: SceneDataController;
+  children?: React.ReactNode;
+  controller?: SceneDataController<T>;
 }) {
   // Subscribe to current scene
   const currentScene = useStageStore((state) => {
@@ -67,9 +68,15 @@ export function SceneProvider({
 
   const updateScene = useStageStore((state) => state.updateScene);
 
-  const sceneId = controller ? controller.sceneId : currentScene?.id || '';
-  const sceneType = controller ? controller.sceneType : currentScene?.type || 'slide';
-  const sceneData = controller ? controller.getSnapshot() : currentScene?.content || null;
+  const controlled = controller
+    ? {
+        controller,
+        snapshot: controller.getSnapshot(),
+      }
+    : null;
+  const sceneId = controlled ? controlled.controller.sceneId : currentScene?.id || '';
+  const sceneType = controlled ? controlled.controller.sceneType : currentScene?.type || 'slide';
+  const sceneData = controlled ? controlled.snapshot : currentScene?.content || null;
 
   // Listeners for scene data changes
   const listenersRef = useRef(new Set<() => void>());
@@ -105,9 +112,14 @@ export function SceneProvider({
     [currentScene, updateScene],
   );
 
-  const updateSceneData = controller
-    ? (controller.updateSceneData as (updater: (draft: unknown) => void) => void)
-    : storeUpdateSceneData;
+  // This closure intentionally belongs to this render: a delayed renderer
+  // callback must carry the snapshot it actually edited, not a newer one.
+  const controllerUpdateSceneData = (updater: (draft: unknown) => void) => {
+    if (!controlled) return;
+    controlled.controller.updateSceneData(controlled.snapshot, updater);
+  };
+
+  const updateSceneData = controlled ? controllerUpdateSceneData : storeUpdateSceneData;
 
   const value = useMemo(
     () => ({
@@ -123,7 +135,7 @@ export function SceneProvider({
 
   // Uncontrolled with no scene: render nothing (parent handles it).
   // Controlled: the caller owns the data, so always render.
-  if (!controller && !currentScene) {
+  if (!controlled && !currentScene) {
     return null;
   }
 

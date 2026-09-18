@@ -58,9 +58,11 @@ interface SlideEditSessionState {
    * stack would silently break undo). `future` IS cleared, though: once
    * `present` is replaced by the normalized content it has diverged from
    * whatever the redo branch pointed at, so those stale entries are no
-   * longer valid continuations.
+   * longer valid continuations. `rendererBaseline` is the exact snapshot
+   * that the renderer edited, allowing concurrent canonical changes to be
+   * preserved without mistaking an observed Agent addition for a duplicate.
    */
-  commitContent: (next: SlideContent, isUserEdit: boolean) => void;
+  commitContent: (next: SlideContent, isUserEdit: boolean, rendererBaseline?: SlideContent) => void;
   setGestureActive: (active: boolean) => void;
   undo: () => void;
   redo: () => void;
@@ -161,15 +163,15 @@ export const useSlideEditSession = create<SlideEditSessionState>((set, get) => {
       replace(applyEditorTransaction(history, transaction));
     },
 
-    commitContent: (next, isUserEdit) => {
+    commitContent: (next, isUserEdit, rendererBaseline) => {
       const previousHistory = get().history;
       if (!previousHistory) return;
       const history = freshHistory();
       if (!history) return;
-      const rebasedNext =
-        history === previousHistory
-          ? next
-          : rebaseSlideEditSnapshot(history.present, previousHistory.present, next);
+      const baseline = rendererBaseline ?? previousHistory.present;
+      const rebasedNext = isEqual(history.present, baseline)
+        ? next
+        : rebaseSlideEditSnapshot(history.present, baseline, next);
       if (!isUserEdit) {
         // ResizeObserver / auto-height normalization: don't push an undo
         // step (the reflow can chase a user resize and wiping `past` would

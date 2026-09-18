@@ -59,7 +59,7 @@ const controller: SceneDataController<SlideContent> = {
 };
 
 const TestSceneProvider = SceneProvider as ComponentType<{
-  controller?: SceneDataController;
+  controller?: SceneDataController<SlideContent>;
   children?: ReactNode;
 }>;
 

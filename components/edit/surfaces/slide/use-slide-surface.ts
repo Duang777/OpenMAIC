@@ -234,7 +234,7 @@ export function useSlideSurfaceState(): SurfaceState<SlideContent, SlideSelectio
 }
 
 interface SlideCanvasController {
-  readonly controller: SceneDataController;
+  readonly controller: SceneDataController<SlideContent>;
   /**
    * Spread onto the canvas wrapper. Tracks whether a pointer gesture is in
    * flight so a renderer commit can be classified as a real user edit vs
@@ -315,19 +315,16 @@ export function useSlideCanvasController(): SlideCanvasController {
 
   useEffect(() => () => useSlideEditSession.getState().end(), []);
 
-  const controller = useMemo<SceneDataController>(
+  const controller = useMemo<SceneDataController<SlideContent>>(
     () => ({
       sceneId,
       sceneType: 'slide',
       // Read from the canonical stage store; the session writes through to
       // it on every history move so this is always the up-to-date content.
       getSnapshot: () => currentSlideContent(sceneId) ?? EMPTY_SLIDE,
-      updateSceneData: (updater) => {
-        const base =
-          useSlideEditSession.getState().history?.present ?? currentSlideContent(sceneId);
-        if (!base) return;
-        const next = produce(base, updater as (draft: SlideContent) => void);
-        useSlideEditSession.getState().commitContent(next, gestureRef.current);
+      updateSceneData: (rendererBaseline, updater) => {
+        const next = produce(rendererBaseline, updater);
+        useSlideEditSession.getState().commitContent(next, gestureRef.current, rendererBaseline);
       },
     }),
     [sceneId],

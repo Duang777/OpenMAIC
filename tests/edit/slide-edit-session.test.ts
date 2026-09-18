@@ -131,6 +131,31 @@ describe('useSlideEditSession (auto-save to stage store)', () => {
     expect(stageMock.liveContent).toBe(present);
   });
 
+  it('applies a local edit to an agent element from the renderer-observed baseline', () => {
+    useSlideEditSession.getState().seed('scene-1', stageMock.liveContent!);
+
+    const rendererBaseline = structuredClone(stageMock.liveContent!);
+    const agentElement = createDefaultTextElement('agent-text');
+    agentElement.left = 111;
+    agentElement.top = 111;
+    rendererBaseline.canvas.elements.push(agentElement);
+    stageMock.liveContent = rendererBaseline;
+
+    const rendererCommit = structuredClone(rendererBaseline);
+    rendererCommit.canvas.elements[1].top = 222;
+
+    const latestCanonical = structuredClone(rendererBaseline);
+    latestCanonical.canvas.elements[1].left = 333;
+    stageMock.liveContent = latestCanonical;
+
+    useSlideEditSession.getState().commitContent(rendererCommit, true, rendererBaseline);
+
+    const present = useSlideEditSession.getState().history!.present;
+    expect(present.canvas.elements.map((element) => element.id)).toEqual(['text-1', 'agent-text']);
+    expect(present.canvas.elements[1]).toMatchObject({ left: 333, top: 222 });
+    expect(stageMock.liveContent).toBe(present);
+  });
+
   it('does not let undo restore a snapshot older than a concurrent canonical update', () => {
     useSlideEditSession.getState().seed('scene-1', stageMock.liveContent!);
     useSlideEditSession.getState().applyOp({
