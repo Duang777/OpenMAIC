@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
 }));
 
+const documents = new Map<string, unknown>();
+
 // Exercise the asynchronous import callback without mounting its file-input UI.
 vi.mock('react', async (importOriginal) => ({
   ...(await importOriginal<typeof import('react')>()),
@@ -86,6 +88,13 @@ async function importArchive(onSuccess = vi.fn()) {
 describe('server-backed import commit boundary', () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockReset();
+    documents.clear();
+    mocks.save.mockImplementation(async (document) => {
+      documents.set(document.stage.id, document);
+    });
+    mocks.remove.mockImplementation(async (stageId) => {
+      documents.delete(stageId);
+    });
     mocks.poolPut.mockResolvedValueOnce('ast_audio').mockResolvedValueOnce('ast_image');
   });
 
@@ -112,6 +121,7 @@ describe('server-backed import commit boundary', () => {
     await importArchive(onSuccess);
     expect(mocks.save).not.toHaveBeenCalled();
     expect(onSuccess).not.toHaveBeenCalled();
+    expect(mocks.remove).not.toHaveBeenCalled();
     expect(mocks.audioDelete).toHaveBeenCalledOnce();
     expect(mocks.mediaDelete).toHaveBeenCalledOnce();
     expect(mocks.toastError).toHaveBeenCalledOnce();
@@ -138,13 +148,33 @@ describe('server-backed import commit boundary', () => {
     expect(mocks.remove).not.toHaveBeenCalled();
   });
 
-  it('reports a failed document commit without claiming import success', async () => {
+  it('does not delete a document when its write has an unknown outcome', async () => {
     mocks.save.mockRejectedValue(new Error('document unavailable'));
     const onSuccess = vi.fn();
     await importArchive(onSuccess);
     expect(onSuccess).not.toHaveBeenCalled();
     expect(mocks.toastSuccess).not.toHaveBeenCalled();
     expect(mocks.toastError).toHaveBeenCalledOnce();
+    expect(mocks.remove).not.toHaveBeenCalled();
     expect(mocks.audioDelete).toHaveBeenCalledOnce();
+    expect(mocks.mediaDelete).toHaveBeenCalledOnce();
+  });
+
+  it('preserves a document when the commit response is lost', async () => {
+    mocks.save.mockImplementation(async (document) => {
+      documents.set(document.stage.id, document);
+      throw new Error('response lost');
+    });
+    const onSuccess = vi.fn();
+
+    await importArchive(onSuccess);
+
+    const document = mocks.save.mock.calls[0][0];
+    expect(documents.get(document.stage.id)).toBe(document);
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(mocks.audioDelete).toHaveBeenCalledOnce();
+    expect(mocks.mediaDelete).toHaveBeenCalledOnce();
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(mocks.toastError).toHaveBeenCalledOnce();
   });
 });
