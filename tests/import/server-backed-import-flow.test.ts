@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   mediaDelete: vi.fn(),
   audioDelete: vi.fn(),
   save: vi.fn(),
+  load: vi.fn(),
   remove: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
@@ -31,7 +32,11 @@ vi.mock('@/lib/media/asset-pool', () => ({ putAsset: mocks.poolPut }));
 vi.mock('@/lib/document-store', () => ({
   canonicalizeLegacyScene: (scene: unknown) => scene,
   mutateDocument: (_id: string, work: (document: null, store: unknown) => unknown) =>
-    work(null, { saveDocument: mocks.save, deleteDocument: mocks.remove }),
+    work(null, {
+      saveDocument: mocks.save,
+      loadDocument: mocks.load,
+      deleteDocument: mocks.remove,
+    }),
 }));
 vi.mock('@/lib/device-storage/database', () => ({
   mediaFileKey: (stageId: string, ref: string) => `${stageId}:${ref}`,
@@ -92,6 +97,7 @@ describe('server-backed import commit boundary', () => {
     mocks.save.mockImplementation(async (document) => {
       documents.set(document.stage.id, document);
     });
+    mocks.load.mockImplementation(async (stageId) => documents.get(stageId) ?? null);
     mocks.remove.mockImplementation(async (stageId) => {
       documents.delete(stageId);
     });
@@ -108,6 +114,7 @@ describe('server-backed import commit boundary', () => {
     expect(mocks.poolPut.mock.invocationCallOrder[1]).toBeLessThan(
       mocks.save.mock.invocationCallOrder[0],
     );
+    expect(mocks.load).not.toHaveBeenCalled();
     expect(onSuccess).toHaveBeenCalledWith(document.stage.id);
     expect(mocks.remove).not.toHaveBeenCalled();
   });
@@ -148,10 +155,12 @@ describe('server-backed import commit boundary', () => {
     expect(mocks.remove).not.toHaveBeenCalled();
   });
 
-  it('does not delete a document when its write has an unknown outcome', async () => {
+  it('reports failure when read-back confirms the document was not committed', async () => {
     mocks.save.mockRejectedValue(new Error('document unavailable'));
     const onSuccess = vi.fn();
     await importArchive(onSuccess);
+    const document = mocks.save.mock.calls[0][0];
+    expect(mocks.load).toHaveBeenCalledExactlyOnceWith(document.stage.id);
     expect(onSuccess).not.toHaveBeenCalled();
     expect(mocks.toastSuccess).not.toHaveBeenCalled();
     expect(mocks.toastError).toHaveBeenCalledOnce();
@@ -160,7 +169,24 @@ describe('server-backed import commit boundary', () => {
     expect(mocks.mediaDelete).toHaveBeenCalledOnce();
   });
 
-  it('preserves a document when the commit response is lost', async () => {
+  it('reports failure without deleting when the rejected write cannot be verified', async () => {
+    mocks.save.mockRejectedValue(new Error('document unavailable'));
+    mocks.load.mockRejectedValue(new Error('read unavailable'));
+    const onSuccess = vi.fn();
+
+    await importArchive(onSuccess);
+
+    const document = mocks.save.mock.calls[0][0];
+    expect(mocks.load).toHaveBeenCalledExactlyOnceWith(document.stage.id);
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    expect(mocks.toastError).toHaveBeenCalledOnce();
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(mocks.audioDelete).toHaveBeenCalledOnce();
+    expect(mocks.mediaDelete).toHaveBeenCalledOnce();
+  });
+
+  it('treats a document found after a rejected write as committed', async () => {
     mocks.save.mockImplementation(async (document) => {
       documents.set(document.stage.id, document);
       throw new Error('response lost');
@@ -171,10 +197,12 @@ describe('server-backed import commit boundary', () => {
 
     const document = mocks.save.mock.calls[0][0];
     expect(documents.get(document.stage.id)).toBe(document);
+    expect(mocks.load).toHaveBeenCalledExactlyOnceWith(document.stage.id);
     expect(mocks.remove).not.toHaveBeenCalled();
-    expect(mocks.audioDelete).toHaveBeenCalledOnce();
-    expect(mocks.mediaDelete).toHaveBeenCalledOnce();
-    expect(onSuccess).not.toHaveBeenCalled();
-    expect(mocks.toastError).toHaveBeenCalledOnce();
+    expect(mocks.audioDelete).not.toHaveBeenCalled();
+    expect(mocks.mediaDelete).not.toHaveBeenCalled();
+    expect(onSuccess).toHaveBeenCalledWith(document.stage.id);
+    expect(mocks.toastSuccess).toHaveBeenCalledOnce();
+    expect(mocks.toastError).not.toHaveBeenCalled();
   });
 });

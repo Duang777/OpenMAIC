@@ -543,7 +543,18 @@ export function useImportClassroom(onSuccess?: (importedStageId: string) => void
         // replaces.
         await mutateDocument(
           newStageId,
-          async (_existing, store) => store.saveDocument(document),
+          async (_existing, store) => {
+            try {
+              await store.saveDocument(document);
+            } catch (saveError) {
+              try {
+                if (await store.loadDocument(newStageId)) return;
+              } catch (verificationError) {
+                log.error('Failed to verify rejected document write:', verificationError);
+              }
+              throw saveError;
+            }
+          },
           {},
           { mode: 'replace' },
         );
