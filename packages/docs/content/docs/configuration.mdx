@@ -173,7 +173,7 @@ A reference without `:model` means the provider's default model: the model a tok
 
 Fallbacks apply to language-model slots: `llm` and every slot below it. A `fallback` on a `tts`, `asr`, `image`, `video`, `webSearch` or `document` slot is refused, at startup for `openmaic.yml` and on save in the model settings.
 
-A slot's `fallback` is tried once when a call on the primary model fails after its own retries with a retryable failure: a transient SDK error, a timeout, a network error, quota exhaustion (429), capacity (503), or empty output. Content-safety refusals and other 4xx errors never fall back. The fallback applies to both regular and streaming calls and uses the slot's `thinking` parameters.
+A slot's `fallback` is tried once when a call on the primary model fails after its own retries with a retryable failure: a transient SDK error, a timeout, a network error, a rate limit (429), capacity (503), or empty output. An explicit quota refusal from the provider (an OpenAI-compatible code such as `insufficient_quota`, whatever its HTTP status) is not retried on the primary model: the call goes to the fallback at once. Content-safety refusals and other 4xx errors never fall back. The fallback applies to both regular and streaming calls and uses the slot's `thinking` parameters.
 
 The fallback belongs to the assignment and is inherited with it: `course.content.slide` without an assignment of its own uses the model and the fallback of `course.content`. A slot with a requirement does not retry on a fallback that fails it.
 
@@ -615,7 +615,29 @@ slots:
 
 Image generation providers use `IMAGE_<PROVIDER>_API_KEY` and optionally `IMAGE_<PROVIDER>_BASE_URL`. Supported prefixes include:
 
-`IMAGE_OPENAI_`, `IMAGE_SEEDREAM_`, `IMAGE_QWEN_IMAGE_`, `IMAGE_NANO_BANANA_`, `IMAGE_MINIMAX_`, `IMAGE_GROK_`, and `IMAGE_LEMONADE_`.
+`IMAGE_OPENAI_`, `IMAGE_SEEDREAM_`, `IMAGE_QWEN_IMAGE_`, `IMAGE_NANO_BANANA_`, `IMAGE_MINIMAX_`, `IMAGE_GROK_`, `IMAGE_GLM_`, and `IMAGE_LEMONADE_`.
+
+GLM Image (Zhipu CogView) generates images with CogView models (`cogview-3-flash`, `cogview-4`):
+
+```yaml title="openmaic.yml"
+providers:
+  glm-image-service:
+    preset: glm-image
+    apiKey: ${IMAGE_GLM_API_KEY}
+    # Optional:
+    baseUrl: https://open.bigmodel.cn/api/paas/v4
+
+slots:
+  image: glm-image-service:cogview-3-flash
+```
+
+Or configure via environment variables:
+
+```bash
+IMAGE_GLM_API_KEY=
+# Optional:
+IMAGE_GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+```
 
 Lemonade is a local service and does not require a key:
 
